@@ -8,7 +8,7 @@
  * @flow
  */
 
-import type {Path, SnapshotUpdateState} from 'types/Config';
+import type { Path, SnapshotUpdateState } from 'types/Config';
 
 import fs from 'fs';
 import {
@@ -32,7 +32,7 @@ class SnapshotState {
   _dirty: boolean;
   _index: number;
   _updateSnapshot: SnapshotUpdateState;
-  _snapshotData: {[key: string]: string};
+  _snapshotData: { [key: string]: string };
   _snapshotPath: Path;
   _uncheckedKeys: Set<string>;
   added: number;
@@ -43,7 +43,7 @@ class SnapshotState {
 
   constructor(testPath: Path, options: SnapshotStateOptions) {
     this._snapshotPath = options.snapshotPath || getSnapshotPath(testPath);
-    const {data, dirty} = getSnapshotData(
+    const { data, dirty } = getSnapshotData(
       this._snapshotPath,
       options.updateSnapshot,
     );
@@ -105,6 +105,21 @@ class SnapshotState {
     }
   }
 
+  hasSnapshot(key: string): boolean {
+    return this._snapshotData[key] !== undefined;
+  }
+
+  shouldUpdateSnapshot(key: string): boolean {
+    return this.hasSnapshot(key) && this._updateSnapshot === 'all';
+  }
+
+  shouldCreateSnapshot(key: string): boolean {
+    return (
+      (!this.hasSnapshot(key) || !fs.existsSync(this._snapshotPath)) &&
+      (this._updateSnapshot === 'new' || this._updateSnapshot === 'all')
+    );
+  }
+
   match(testName: string, received: any, key?: string) {
     this._counters.set(testName, (this._counters.get(testName) || 0) + 1);
     const count = Number(this._counters.get(testName));
@@ -137,52 +152,29 @@ class SnapshotState {
     // These are the conditions on when not to write snapshots:
     //  * The update flag is set to 'none'.
     //  * There's no snapshot file or a file without this snapshot on a CI environment.
-    if (
-      (hasSnapshot && this._updateSnapshot === 'all') ||
-      ((!hasSnapshot || !fs.existsSync(this._snapshotPath)) &&
-        (this._updateSnapshot === 'new' || this._updateSnapshot === 'all'))
-    ) {
-      if (this._updateSnapshot === 'all') {
-        if (!pass) {
-          if (hasSnapshot) {
-            this.updated++;
-          } else {
-            this.added++;
-          }
-          this._addSnapshot(key, receivedSerialized);
-        } else {
-          this.matched++;
-        }
-      } else {
-        this._addSnapshot(key, receivedSerialized);
-        this.added++;
-      }
-
+    if (this.shouldUpdateSnapshot(key) && !passed) {
+      this.updated++;
+      this._addSnapshot(key, receivedSerialized);
+    } else if (this.shouldCreateSnapshot(key) && !passed) {
+      this.added++;
+      this._addSnapshot(key, receivedSerialized);
+    } else if (!pass) {
+      this.unmatched++;
       return {
-        actual: '',
+        actual: unescape(receivedSerialized),
         count,
-        expected: '',
-        pass: true,
+        expected: expected ? unescape(expected) : null,
+        pass: false,
       };
     } else {
-      if (!pass) {
-        this.unmatched++;
-        return {
-          actual: unescape(receivedSerialized),
-          count,
-          expected: expected ? unescape(expected) : null,
-          pass: false,
-        };
-      } else {
-        this.matched++;
-        return {
-          actual: '',
-          count,
-          expected: '',
-          pass: true,
-        };
-      }
+      this.matched++;
     }
+    return {
+      actual: '',
+      count,
+      expected: '',
+      pass: true,
+    };
   }
 }
 
